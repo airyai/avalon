@@ -1,0 +1,1 @@
+/usr/bin/c++   -g    CMakeFiles/avalon.dir/errors.cpp.o CMakeFiles/avalon.dir/thread/workpool.cpp.o CMakeFiles/avalon.dir/thread/asyncresult.cpp.o CMakeFiles/avalon.dir/servers/channelbase.cpp.o CMakeFiles/avalon.dir/main.cpp.o  -o avalon -rdynamic -lboost_system -lboost_thread -lpthread -lprotobuf -lssl 
