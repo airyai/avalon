@@ -124,7 +124,7 @@ AsyncResultPtr WorkPool::submit ( const avalon::thread::AsyncResult::Task& job,
 
 void WorkPool::exec_(const AsyncResultPtr& ar)
 {
-    ar->do_task();
+    ar->execute();
 }
 
 

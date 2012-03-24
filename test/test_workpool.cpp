@@ -31,7 +31,7 @@ BOOST_AUTO_TEST_CASE( async_result )
         ar.add_error(boost::bind(f, boost::ref(k), 1));
         ar.add_cancel(boost::bind(f, boost::ref(l), 1));
         ar.add_all(boost::bind(f, boost::ref(m), 1));
-        ar.do_task();
+        ar.execute();
         
         BOOST_REQUIRE( i == 0xdeadbeef );
         BOOST_REQUIRE( j == 1 && k == 0 && l == 0 && m == 1 );
@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE( async_result )
         ar.add_error(boost::bind(f, boost::ref(k), 1));
         ar.add_cancel(boost::bind(f, boost::ref(l), 1));
         ar.add_all(boost::bind(f, boost::ref(m), 1));
-        ar.do_task();
+        ar.execute();
         
         BOOST_REQUIRE( i == 0 );
         BOOST_REQUIRE( j == 0 && k == 1 && l == 0 && m == 1 );
@@ -56,7 +56,7 @@ BOOST_AUTO_TEST_CASE( async_result )
         ar.add_cancel(boost::bind(f, boost::ref(l), 1));
         ar.add_all(boost::bind(f, boost::ref(m), 1));
         ar.cancel();
-        ar.do_task();
+        ar.execute();
         
         BOOST_REQUIRE( i == 0 );
         BOOST_REQUIRE( j == 0 && k == 0 && l == 1 && m == 1 );

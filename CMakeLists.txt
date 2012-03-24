@@ -20,16 +20,18 @@ SET(TEST_LIB ${COMMON_LIB} ${BOOST_UNIT_TEST_LIB})
 SET(COMMON_SRC errors.cpp)
 SET(THREAD_SRC thread/workpool.cpp thread/asyncresult.cpp)
 SET(SERVER_SRC servers/channelbase.cpp)
+
 SET(TEST_SRC test/test_pre_condition.cpp test/test_workpool.cpp)
-
 SET(MAIN_SRC ${COMMON_SRC} ${THREAD_SRC} ${SERVER_SRC})
-SET(TEST_SRC ${MAIN_SRC} ${TEST_SRC})
 
+# compile the avalon library
+add_library(avalon ${MAIN_SRC})
+add_library(avalon_test ${TEST_SRC})
 
 # compile main executable program
-add_executable(avalon ${MAIN_SRC} main.cpp)
-target_link_libraries(avalon ${COMMON_LIB})
+add_executable(main main.cpp)
+target_link_libraries(main avalon ${COMMON_LIB})
 
 # compile test programs
-add_executable(test ${TEST_SRC} test/test_main.cpp)
-target_link_libraries(test ${TEST_LIB})
+add_executable(test test/test_main.cpp)
+target_link_libraries(test avalon avalon_test ${TEST_LIB})

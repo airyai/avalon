@@ -95,7 +95,7 @@ const avalon::AvalonException* AsyncResult::exception() const
     return exception_.get();
 }
 
-void AsyncResult::set_exception()
+void AsyncResult::set_error()
 {
     bool should_call = false;
     {
@@ -107,7 +107,7 @@ void AsyncResult::set_exception()
     }
 }
 
-void AsyncResult::set_exception ( const avalon::AvalonException& other )
+void AsyncResult::set_error ( const avalon::AvalonException& other )
 {
     bool should_call = false;
     {
@@ -182,6 +182,11 @@ void AsyncResult::add_cancel ( const avalon::thread::AsyncResult::Callback& call
     callbacks_.push_back(std::make_pair(CALLBACK_CANCEL, callback));
 }
 
+bool AsyncResult::set_cancel()
+{
+    cancel();
+}
+
 bool AsyncResult::cancel()
 {
     bool should_call_cancel = false;
@@ -197,7 +202,7 @@ bool AsyncResult::cancel()
     return should_call_cancel;
 }
 
-void AsyncResult::do_task()
+bool AsyncResult::execute()
 {
     bool should_call = false;
     {
@@ -209,9 +214,9 @@ void AsyncResult::do_task()
             task_();
             set_success();
         } catch (AvalonException& err) {
-            set_exception(err);
+            set_error(err);
         } catch (...) {
-            set_exception();
+            set_error();
         }
     }
 }

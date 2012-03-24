@@ -109,19 +109,22 @@ public:
     const AvalonException* exception() const;
     
     /// Set the error as an unknown exception.
-    void set_exception();
+    void set_error();
     
     /// Set the error as an AvalonException.
-    void set_exception(const AvalonException& other);
+    void set_error(const AvalonException& other);
     
-    /// Execute the callbacks on success.
-    void call_success();
+    /// Set the status to cancelled, and execute callbacks.
+    /**
+     * If the job has already executed, or is running, then the method 
+     * do nothing.
+     * 
+     * @return Successfully marked cancelled.
+     */
+    bool cancel();
     
-    /// Execute the callbacks on error.
-    void call_error();
-    
-    /// Execute the callbacks on cancel.
-    void call_cancel();
+    /// Set the status to cancelled, and execute callbacks.
+    bool set_cancel();
     
     /// Add callback on success
     /**
@@ -151,21 +154,14 @@ public:
      */
     void add_all(const Callback& callback);
     
-    /// Set the status to cancelled, and execute callbacks.
-    /**
-     * If the job has already executed, or is running, then the method 
-     * do nothing.
-     * 
-     * @return Successfully marked cancelled.
-     */
-    bool cancel();
-    
     /// Call the function method.
     /**
      * Only if the AsyncResult's status is WAIT, then the task will be called.
      * And, according to the status, callbacks will be executed.
+     * 
+     * @return True if really executed, otherwise false.
      */
-    void do_task();
+    bool execute();
     
 protected:
     /// The lock type.
@@ -203,6 +199,15 @@ protected:
     
     /// The error object.
     boost::shared_ptr<AvalonException> exception_;
+
+    /// Execute the callbacks on success.
+    void call_success();
+    
+    /// Execute the callbacks on error.
+    void call_error();
+    
+    /// Execute the callbacks on cancel.
+    void call_cancel();
 };
 
 /// The job's AsyncResult shared_ptr.
