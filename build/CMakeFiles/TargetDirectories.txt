@@ -1,2 +1,0 @@
-/home/pwx/projects/avalon/build/CMakeFiles/avalon.dir
-/home/pwx/projects/avalon/build/CMakeFiles/test.dir
