@@ -26,12 +26,12 @@ SET(MAIN_SRC ${COMMON_SRC} ${THREAD_SRC} ${SERVER_SRC})
 
 # compile the avalon library
 add_library(avalon ${MAIN_SRC})
-add_library(avalon_test ${TEST_SRC})
+# add_library(avalon_test ${TEST_SRC})
 
 # compile main executable program
 add_executable(main main.cpp)
 target_link_libraries(main avalon ${COMMON_LIB})
 
 # compile test programs
-add_executable(test test/test_main.cpp)
-target_link_libraries(test avalon avalon_test ${TEST_LIB})
+add_executable(test ${TEST_SRC} test/test_main.cpp)
+target_link_libraries(test avalon ${TEST_LIB})
