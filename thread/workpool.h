@@ -55,14 +55,12 @@ public:
     
     /// Stop the workpool's loop.
     /**
-     * All jobs that is not running will be cancelled.
-     * 
-     * @param interrupt Interrupt the running jobs. Children may implement 
-     *      this function, but may not either.
+     * All jobs that is not running will be cancelled. Running jobs will be 
+     * joined until done.
      * 
      * @throw AvalonWorkPoolMethodNotSupport If the workpool doesn't support.
      */
-    virtual void stop(bool interrupt = false);
+    virtual void stop();
     
     /// Add a job to the workpool's job queue.
     /**
@@ -130,7 +128,7 @@ public:
     virtual ~WorkPool();
 
     /// Stop the workpool's loop.
-    virtual void stop(bool interrupt = false);
+    virtual void stop();
     
     /// Add a job to the workpool's job queue.
     virtual AsyncResultPtr submit(const AsyncResult::Task& job, const AsyncResult::Callback& callback);

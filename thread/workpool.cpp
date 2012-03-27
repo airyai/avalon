@@ -39,7 +39,7 @@ WorkPoolBase::~WorkPoolBase()
     stop();
 }
 
-void WorkPoolBase::stop(bool interrupt)
+void WorkPoolBase::stop()
 {
     // gain a copy from old jobset and create a new jobset.
     // so that I can prevent from long-life lock (like mutex).
@@ -80,7 +80,7 @@ AsyncResultPtr WorkPoolBase::submit ( const avalon::thread::AsyncResult::Task& j
     ar->add_all(boost::bind(&WorkPoolBase::drop, this, ar));
     {
         Lock::scoped_lock locker(lock_);
-        if (jobs_->size() >= max_queue_)
+        if (max_queue_ && jobs_->size() >= max_queue_)
             throw AvalonWorkPoolFull();
         jobs_->insert(ar);
     }
@@ -102,16 +102,11 @@ WorkPool::~WorkPool()
 {
 }
 
-void WorkPool::stop(bool interrupt)
+void WorkPool::stop()
 {
     service_.stop();
     avalon::thread::WorkPoolBase::stop();
-    
-    if (interrupt) {
-        pool_.interrupt_all();
-    } else {
-        pool_.join_all();
-    }
+    pool_.join_all();
 }
 
 AsyncResultPtr WorkPool::submit ( const avalon::thread::AsyncResult::Task& job, 

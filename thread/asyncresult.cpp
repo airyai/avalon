@@ -23,46 +23,22 @@
 
 BEGIN_AVALON_NS2(thread)
 
-AsyncResult::ScopedStatus::ScopedStatus ( avalon::thread::AsyncResult& ar, 
-                                          avalon::thread::AsyncResult::Status hold_status,
-                                          avalon::thread::AsyncResult::Status leave_status,
-                                          avalon::thread::AsyncResult::Status ensure_status)
- :  ar_(ar), 
-    changable_(false), 
-    leave_status_(leave_status)
+AsyncResult::ResultBase::ResultBase()
 {
-    AsyncResult::Lock::scoped_lock locker(ar.lock_);
-    if (ar.status_ == ensure_status) {
-        changable_ = true;
-        ar.status_ = hold_status;
-    }
 }
 
-AsyncResult::ScopedStatus::~ScopedStatus()
+AsyncResult::ResultBase::~ResultBase()
 {
-    if (changable_) {
-        AsyncResult::Lock::scoped_lock locker(ar_.lock_);
-        ar_.status_ = leave_status_;
-    }
-}
-
-bool AsyncResult::ScopedStatus::changable() const
-{
-    return changable_;
-}
-
-AsyncResult::Status AsyncResult::ScopedStatus::leave_status() const
-{
-    return leave_status_;
-}
-
-void AsyncResult::ScopedStatus::set_leave_status ( AsyncResult::Status leave_status )
-{
-    leave_status_ = leave_status;
 }
 
 AsyncResult::AsyncResult ( const avalon::thread::AsyncResult::Task& task )
-    :   lock_(), status_(WAIT), task_(task), callbacks_()
+ :  lock_(), 
+    cond_(), 
+    status_(WAIT),
+    task_(task), 
+    callbacks_(), 
+    exception_(), 
+    result_()
 {
 }
 
@@ -77,109 +53,65 @@ AsyncResult::~AsyncResult()
     cancel();
 }
 
+const avalon::AvalonException* AsyncResult::exception()
+{
+    Lock::scoped_lock locker(lock_);
+    return exception_.get();
+}
+
 void AsyncResult::set_success()
 {
     bool should_call = false;
     {
-        ScopedStatus status_locker(*this, RUNNING, SUCCESS, RUNNING);
-        should_call = status_locker.changable();
+        Lock::scoped_lock locker(lock_);
+        if (status_ == RUNNING) {
+            should_call = true;
+            status_ = SUCCESS;
+        }
     }
     if (should_call) {
-        call_success();
+        call_callback(CALLBACK_SUCCESS);
     }
 }
 
-
-const avalon::AvalonException* AsyncResult::exception() const
+void AsyncResult::set_interrupt()
 {
-    return exception_.get();
+    bool should_call = false;
+    {
+        Lock::scoped_lock locker(lock_);
+        if (status_ == RUNNING) {
+            should_call = true;
+            status_ = INTERRUPTED;
+        }
+    }
+    if (should_call) {
+        call_callback(CALLBACK_INTERRUPT);
+    }
 }
 
 void AsyncResult::set_error()
 {
-    bool should_call = false;
-    {
-        ScopedStatus status_locker(*this, RUNNING, ERROR, RUNNING);
-        should_call = status_locker.changable();
-    }
-    if (should_call) {
-        call_error();
-    }
+    set_error(NULL);
 }
 
-void AsyncResult::set_error ( const avalon::AvalonException& other )
+void AsyncResult::set_error ( const avalon::AvalonException* err )
 {
     bool should_call = false;
     {
-        ScopedStatus status_locker(*this, RUNNING, ERROR, RUNNING);
-        should_call = status_locker.changable();
+        Lock::scoped_lock locker(lock_);
+        if (status_ == RUNNING) {
+            should_call = true;
+            status_ = ERROR;
+        }
+        if (err) {
+            exception_.reset(new AvalonException(*err));
+        } else {
+            exception_.reset();
+        }
     }
     if (should_call) {
-        exception_.reset(new AvalonException(other));
-        call_error();
+        call_callback(CALLBACK_ERROR);
     }
-}
-
-void AsyncResult::call_success ()
-{
-    BOOST_FOREACH(CallbackListItem& it, callbacks_)
-    {
-        if (it.first & CALLBACK_SUCCESS) {
-            try {
-                it.second(*this);
-            } catch (...) {
-                // simply ignore the callback errors.
-            }
-        }
-    }
-}
-
-void AsyncResult::call_error ()
-{
-    BOOST_FOREACH(CallbackListItem& it, callbacks_)
-    {
-        if (it.first & CALLBACK_ERROR) {
-            try {
-                it.second(*this);
-            } catch (...) {
-                // simply ignore the callback errors.
-            }
-        }
-    }
-}
-
-void AsyncResult::call_cancel()
-{
-    BOOST_FOREACH(CallbackListItem& it, callbacks_)
-    {
-        if (it.first & CALLBACK_CANCEL) {
-            try {
-                it.second(*this);
-            } catch (...) {
-                // simply ignore the callback errors.
-            }
-        }
-    }
-}
-
-void AsyncResult::add_all ( const avalon::thread::AsyncResult::Callback& callback )
-{
-    callbacks_.push_back(std::make_pair(CALLBACK_ALL, callback));
-}
-
-void AsyncResult::add_success ( const avalon::thread::AsyncResult::Callback& callback )
-{
-    callbacks_.push_back(std::make_pair(CALLBACK_SUCCESS, callback));
-}
-
-void AsyncResult::add_error ( const avalon::thread::AsyncResult::Callback& callback )
-{
-    callbacks_.push_back(std::make_pair(CALLBACK_ERROR, callback));
-}
-
-void AsyncResult::add_cancel ( const avalon::thread::AsyncResult::Callback& callback )
-{
-    callbacks_.push_back(std::make_pair(CALLBACK_CANCEL, callback));
 }
 
 bool AsyncResult::set_cancel()
@@ -187,40 +119,127 @@ bool AsyncResult::set_cancel()
     cancel();
 }
 
-bool AsyncResult::cancel()
+void AsyncResult::clear_result()
 {
-    bool should_call_cancel = false;
+    Lock::scoped_lock locker(lock_);
+    result_.reset();
+}
+
+void AsyncResult::call_callback(unsigned int flag)
+{
+    cond_.notify_all();
+    
+    CallbackList callbacks;
     {
-        ScopedStatus status_locker(*this, CANCELLING, CANCELLED);
-        if (status_locker.changable()) {
-            should_call_cancel = true;
+        Lock::scoped_lock locker(lock_);
+        callbacks = callbacks_;
+        callbacks_.clear();
+    }
+    BOOST_FOREACH(CallbackListItem& it, callbacks)
+    {
+        if (it.first & flag) {
+            try {
+                it.second(*this);
+            } catch (...) {
+                // simply ignore the callback errors.
+            }
         }
     }
-    if (should_call_cancel) {
-        call_cancel();
+}
+
+void AsyncResult::add_callback(const Callback& callback, unsigned int flag) {
+    bool should_call = false;
+    {
+        Lock::scoped_lock locker(lock_);
+        if (status_ == WAIT || status_ == RUNNING) {
+            callbacks_.push_back(std::make_pair(flag, callback));
+        } else {
+            should_call = true;
+        }
     }
-    return should_call_cancel;
+    if (should_call) callback(*this);
+}
+
+void AsyncResult::add_all ( const avalon::thread::AsyncResult::Callback& callback )
+{
+    add_callback(callback, CALLBACK_ALL);
+}
+
+void AsyncResult::add_success ( const avalon::thread::AsyncResult::Callback& callback )
+{
+    add_callback(callback, CALLBACK_SUCCESS);
+}
+
+void AsyncResult::add_error ( const avalon::thread::AsyncResult::Callback& callback )
+{
+    add_callback(callback, CALLBACK_ERROR);
+}
+
+void AsyncResult::add_cancel ( const avalon::thread::AsyncResult::Callback& callback )
+{
+    add_callback(callback, CALLBACK_CANCEL);
+}
+
+void AsyncResult::add_interrupt ( const avalon::thread::AsyncResult::Callback& callback )
+{
+    add_callback(callback, CALLBACK_INTERRUPT);
+}
+
+bool AsyncResult::cancel()
+{
+    bool should_call = false;
+    {
+        Lock::scoped_lock locker(lock_);
+        if (status_ == WAIT) {
+            should_call = true;
+            status_ = CANCELLED;
+        }
+    }
+    if (should_call) {
+        call_callback(CALLBACK_CANCEL);
+    }
+    return should_call;
 }
 
 bool AsyncResult::execute()
 {
     bool should_call = false;
     {
-        ScopedStatus status_locker(*this, RUNNING, RUNNING);
-        should_call = status_locker.changable();
+        Lock::scoped_lock locker(lock_);
+        if (status_ == WAIT) {
+            should_call = true;
+            status_ = RUNNING;
+        }
     }
     if (should_call) {
         try {
-            task_();
+            task_(*this);
             set_success();
         } catch (AvalonException& err) {
-            set_error(err);
+            set_error(&err);
+        } catch (boost::thread_interrupted) {
+            set_interrupt();
+            throw;
         } catch (...) {
             set_error();
         }
     }
+    return should_call;
 }
 
+bool AsyncResult::wait(size_t timeout)
+{
+    Lock::scoped_lock locker(lock_);
+    if (status_ != WAIT && status_ != RUNNING) {
+        return true;
+    }
+    if (timeout)
+        return cond_.timed_wait(locker, boost::posix_time::milliseconds(timeout));
+    else {
+        cond_.wait(locker);
+        return true;
+    }
+}
 
 
 

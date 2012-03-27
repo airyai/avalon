@@ -18,20 +18,25 @@ SET(TEST_LIB ${COMMON_LIB} ${BOOST_UNIT_TEST_LIB})
 
 # gather source files
 SET(COMMON_SRC errors.cpp)
-SET(THREAD_SRC thread/workpool.cpp thread/asyncresult.cpp)
+SET(THREAD_SRC thread/workpool.cpp thread/asyncresult.cpp thread/threadpool.cpp thread/threadgroup.cpp)
 SET(SERVER_SRC servers/channelbase.cpp)
 
 SET(TEST_SRC test/test_pre_condition.cpp test/test_workpool.cpp)
+SET(SPEED_SRC test/speed_workpool.cpp)
 SET(MAIN_SRC ${COMMON_SRC} ${THREAD_SRC} ${SERVER_SRC})
 
 # compile the avalon library
-add_library(avalon ${MAIN_SRC})
+add_library(libavalon ${MAIN_SRC})
 # add_library(avalon_test ${TEST_SRC})
 
 # compile main executable program
 add_executable(main main.cpp)
-target_link_libraries(main avalon ${COMMON_LIB})
+target_link_libraries(main libavalon ${COMMON_LIB})
 
 # compile test programs
 add_executable(test ${TEST_SRC} test/test_main.cpp)
-target_link_libraries(test avalon ${TEST_LIB})
+target_link_libraries(test libavalon ${TEST_LIB})
+
+# compile speed test programs
+add_executable(speed ${SPEED_SRC} test/speed_main.cpp)
+target_link_libraries(speed libavalon ${TEST_LIB})

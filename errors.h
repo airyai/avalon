@@ -29,7 +29,16 @@
 BEGIN_AVALON_NS
 
 /// The exception class name.
-typedef boost::error_info<struct tag_error_class, std::string> error_class_name;
+typedef boost::error_info<struct tag_error_class, std::string> error_class;
+
+/// The error number.
+typedef boost::error_info<struct tag_error_number, int> error_number;
+
+/// The error message.
+typedef boost::error_info<struct tag_error_message, std::string> error_message;
+
+/// The argument name.
+typedef boost::error_info<struct tag_error_argument, std::string> error_argument;
 
 /// The base class for all Avalon exceptions.
 /**
@@ -40,6 +49,12 @@ typedef boost::error_info<struct tag_error_class, std::string> error_class_name;
  */
 class AvalonException : public boost::exception, public std::exception {};
 
+/// The operation is not permitted.
+class AvalonOperationForbid : public AvalonException {};
+
+/// The argument is invalid.
+class AvalonInvalidArgument : public AvalonException {};
+
 /// The workpool is full.
 class AvalonWorkPoolFull : public AvalonException {};
 
@@ -47,7 +62,14 @@ class AvalonWorkPoolFull : public AvalonException {};
 class AvalonWorkPoolMethodNotSupport : public AvalonException {};
 
 /// Create an instance of exception class and set the class name.
-#define AVALON_THROW(class) BOOST_THROW_EXCEPTION(class() << ::avalon::error_class_name(#class))
+#define AVALON_THROW(class) BOOST_THROW_EXCEPTION(class() << ::avalon::error_class(#class))
+
+/// Create an instance of exception class, insert error info, and set class name.
+/**
+ * Usage: AVALON_THROW_INFO(className, error_info1 [ << error_info2 [ ... ] ])
+ */
+#define AVALON_THROW_INFO(class, error_info) \
+    BOOST_THROW_EXCEPTION(class() << ::avalon::error_class(#class) << error_info)
 
 END_AVALON_NS
 

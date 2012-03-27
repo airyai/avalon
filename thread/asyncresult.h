@@ -25,7 +25,7 @@
 
 #include <list>
 #include <boost/function.hpp>
-#include <boost/smart_ptr/detail/spinlock.hpp>
+#include <boost/thread/condition.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/noncopyable.hpp>
@@ -47,7 +47,7 @@ class AsyncResult
 {
 public:
     /// The function call type.
-    typedef boost::function<void ()> Task;
+    typedef boost::function<void (AsyncResult&)> Task;
     
     /// The callback type.
     typedef boost::function<void (AsyncResult&)> Callback;
@@ -55,39 +55,69 @@ public:
     /// The AsyncResult status type.
     enum Status
     {
+        /// The task is waiting for execution.
         WAIT = 0,
+        
+        /// The task is being executed.
         RUNNING = 1,
+        
+        /// The task has succesfully executed.
         SUCCESS = 2,
+        
+        /// There's some error during execution.
         ERROR = 3,
-        CANCELLING = 4,
-        CANCELLED = 5
+        
+        /// The task has been cancelled.
+        CANCELLED = 4,
+        
+        /// The thread in which the task is executed has been interrupted.
+        INTERRUPTED = 5
     };
     
-    /// The scoped status monitor.
+    /// The base class for Result.
     /**
-     * The moment ScopedStatus is created, it will make sure that 
-     * the status of AsyncResult is ensure_status, otherwise it will mark the 
-     * AsyncResult unchangable.
-     * 
-     * If the AsyncResult is changable, then the Monitor will immediately 
-     * set the status hold_status. And when the monitor is to be disposed,
-     * the status will be changed to leave_status.
+     * Provide a result wrapper, to keep the result object alive.
      */
-    class ScopedStatus
-    {
+    class ResultBase {
     public:
-        ScopedStatus(AsyncResult& ar, Status hold_status = RUNNING, 
-                     Status leave_status = SUCCESS, Status ensure_status = WAIT);
-        ~ScopedStatus();
+        /// Create a new result.
+        ResultBase();
         
-        bool changable() const;
-        Status leave_status() const;
-        void set_leave_status(Status leave_status);
+        /// Dispose the result.
+        virtual ~ResultBase();
+    };
+    
+    /// Type specified Result.
+    template <typename T>
+    class Result : public ResultBase {
+    public:
+        /// The data pointer type.
+        typedef boost::shared_ptr<T> DataPtr;
+        
+        /// Create a Result object and manages the data object.
+        /**
+         * After all Result instance that share the data object, it 
+         * will be disposed.
+         */
+        Result(T* data);
+        
+        /// Create a Result object that shares the data object.
+        Result(const DataPtr& data);
+        
+        /// Copy construct a Result object.
+        Result(const Result<T>& other);
+        
+        /// Copy a Result object.
+        Result<T>& operator=(const Result<T>& other);
+        
+        /// Dispose the Result object.
+        virtual ~Result();
+        
+        /// Get the result data.
+        const DataPtr &data() const;
         
     protected:
-        AsyncResult& ar_;
-        bool changable_;
-        Status leave_status_;
+        DataPtr result_;
     };
     
     /// create a new AsyncResult.
@@ -102,55 +132,74 @@ public:
      */
     Status status();
     
-    /// Set the status as success.
-    void set_success();
-    
     /// The result exception.
-    const AvalonException* exception() const;
+    const AvalonException* exception();
     
-    /// Set the error as an unknown exception.
-    void set_error();
+    /// Get the result data.
+    template <typename T>
+    typename Result<T>::DataPtr get_result();
     
-    /// Set the error as an AvalonException.
-    void set_error(const AvalonException& other);
+    /// Create a result object that manages the T* data.
+    /**
+     * The content of the pointer is not copied, but managed 
+     * by shared_ptr. So just create a pointer and pass it to 
+     * this method.
+     */
+    template <typename T>
+    void set_result(T* data);
+    
+    /// Create a result object that shares the T* data.
+    template <typename T>
+    void set_result(const typename Result<T>::DataPtr &data);
+    
+    /// Clear the result object.
+    void clear_result();
     
     /// Set the status to cancelled, and execute callbacks.
     /**
      * If the job has already executed, or is running, then the method 
      * do nothing.
      * 
-     * @return Successfully marked cancelled.
+     * @return true if did cancel, otherwise false.
      */
     bool cancel();
     
-    /// Set the status to cancelled, and execute callbacks.
-    bool set_cancel();
-    
-    /// Add callback on success
+    /// Add callback on success.
     /**
-     * Add callback is not thread safe, for the initialization methods is 
-     * almost occurred when the object is being initialized.
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately 
+     * if the status is SUCCESS.
      */
     void add_success(const Callback& callback);
     
-    /// Add callback on error
+    /// Add callback on error.
     /**
-     * Add callback is not thread safe, for the initialization methods is 
-     * almost occurred when the object is being initialized.
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately 
+     * if the status if ERROR.
      */
     void add_error(const Callback& callback);
     
-    /// Add callback on cancel
+    /// Add callback on cancel.
     /**
-     * Add callback is not thread safe, for the initialization methods is 
-     * almost occurred when the object is being initialized.
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately 
+     * if the status is CANCELLED.
      */
     void add_cancel(const Callback& callback);
     
+    /// Add callback on interrupt.
+    /**
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately 
+     * if the status is CANCELLED.
+     */
+    void add_interrupt(const Callback& callback);
+    
     /// Add calback on all events.
     /**
-     * Add callback is not thread safe, for the initialization methods is 
-     * almost occurred when the object is being initialized.
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately.
      */
     void add_all(const Callback& callback);
     
@@ -163,12 +212,43 @@ public:
      */
     bool execute();
     
+    /// Wait for the job to be finished.
+    /**
+     * Wait only if the AsyncResult's status is RUNNING or WAIT. When timeout 
+     * specified, the method will return if time exceeds.
+     * 
+     * @param timeout The maximum waiting milliseconds. Zero means no limit.
+     * @return false if time exceeds, otherwise true (including no waiting).
+     */
+    bool wait(size_t timeout = 0);
+    
 protected:
     /// The lock type.
-    typedef boost::detail::spinlock Lock;
+    /**
+     * At first I attempted to use spinlock, just as shared_ptr or some 
+     * other objects. But later I realized, that AsyncResult may be used 
+     * in many * many threads.
+     * 
+     * According to a brief test,
+     * http://www.searchtb.com/2011/01/pthreads-mutex-vs-pthread-spinlock.html,
+     * the efficiency decreased dramatically even if there are only about 10 
+     * threads. 
+     * 
+     * Even in single-thread environment, the speed of mutex is just ok for 
+     * server applications. In test/speed_workpool.cpp, 10,000,000 mutex lock 
+     * uses 0.6s on my laptop.
+     * 
+     * Another reason is, mutex supports condition_variable.
+     * 
+     * So I chose mutex later.
+     */
+    typedef boost::mutex Lock;
     
     /// The spin lock for status.
     Lock lock_;
+    
+    /// The condition variable to notify that the job has been done.
+    boost::condition_variable cond_;
     
     /// The status.
     Status status_;
@@ -185,8 +265,12 @@ protected:
     /// The cancel callback flag.
     static const unsigned int CALLBACK_CANCEL = 0x4;
     
+    /// The interrupt callback flag.
+    static const unsigned int CALLBACK_INTERRUPT = 0x8;
+    
     /// The full callback flag.
-    static const unsigned int CALLBACK_ALL = CALLBACK_SUCCESS | CALLBACK_ERROR | CALLBACK_CANCEL;
+    static const unsigned int CALLBACK_ALL = CALLBACK_SUCCESS | CALLBACK_ERROR
+                                                | CALLBACK_CANCEL | CALLBACK_INTERRUPT;
     
     /// The callback list item.
     typedef std::pair<unsigned int, Callback> CallbackListItem;
@@ -199,20 +283,41 @@ protected:
     
     /// The error object.
     boost::shared_ptr<AvalonException> exception_;
-
-    /// Execute the callbacks on success.
-    void call_success();
     
-    /// Execute the callbacks on error.
-    void call_error();
+    /// The result object.
+    boost::shared_ptr<ResultBase> result_;
     
-    /// Execute the callbacks on cancel.
-    void call_cancel();
+    /// Set the status as success.
+    void set_success();
+    
+    /// Set the status to cancelled, and execute callbacks.
+    bool set_cancel();
+    
+    /// Set the error as an unknown exception.
+    void set_error();
+    
+    /// Set the error as an AvalonException.
+    void set_error(const AvalonException* err);
+    
+    /// Set the status to interrupted, and execute callbacks.
+    void set_interrupt();
+    
+    /// Add calback on all events.
+    /**
+     * Add the callback to callback list if current status is 
+     * WAIT or RUNNING, otherwise execute the callback immediately.
+     */
+    void add_callback(const Callback& callback, unsigned int flag);
+    
+    /// Execute the callbacks match flag modifier.
+    void call_callback(unsigned int flag);
 };
 
 /// The job's AsyncResult shared_ptr.
 typedef boost::shared_ptr<AsyncResult> AsyncResultPtr;
 
 END_AVALON_NS2
+
+#include "asyncresult.tpl.h"
 
 #endif // ASYNCRESULT_H
